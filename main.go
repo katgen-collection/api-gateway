@@ -41,6 +41,15 @@ func main() {
 		return c.SendString("Gateway is healthy")
 	})
 
+	// ── Downstream Health (Public) ─────────────────────────────────────────────
+	// These satisfy GitHub Actions health checks during deployment.
+	app.Get("/auth/health", func(c *fiber.Ctx) error {
+		return proxy.Do(c, cfg.AuthServiceURL+"/health")
+	})
+	app.Get("/chat/health", func(c *fiber.Ctx) error {
+		return proxy.Do(c, cfg.ChatServiceURL+"/health")
+	})
+
 	// ── Auth service routes (unauthenticated passthrough) ─────────────────────
 	app.All("/api/v1/auth/*", func(c *fiber.Ctx) error {
 		url := cfg.AuthServiceURL + c.OriginalURL()
