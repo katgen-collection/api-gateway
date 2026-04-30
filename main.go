@@ -44,10 +44,18 @@ func main() {
 	// ── Downstream Health (Public) ─────────────────────────────────────────────
 	// These satisfy GitHub Actions health checks during deployment.
 	app.Get("/auth/health", func(c *fiber.Ctx) error {
-		return proxy.Do(c, cfg.AuthServiceURL+"/health")
+		err := proxy.Do(c, cfg.AuthServiceURL+"/health")
+		if err != nil {
+			log.Printf("proxy.Do /auth/health error: %v", err)
+		}
+		return err
 	})
 	app.Get("/chat/health", func(c *fiber.Ctx) error {
-		return proxy.Do(c, cfg.ChatServiceURL+"/health")
+		err := proxy.Do(c, cfg.ChatServiceURL+"/health")
+		if err != nil {
+			log.Printf("proxy.Do /chat/health error: %v", err)
+		}
+		return err
 	})
 
 	// ── Auth service routes (unauthenticated passthrough) ─────────────────────
