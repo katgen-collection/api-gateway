@@ -1,0 +1,158 @@
+name: Deploy API Gateway
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: api-gateway-deploy
+  cancel-in-progress: true
+
+env:
+  SERVICE_NAME: api-gateway
+  BINARY_NAME: api-gateway
+  BUILD_DIR: build
+  BUILD_TARGET: ./main.go
+  REMOTE_BIN_PATH: /usr/local/bin/api-gateway
+  REMOTE_ENV_DIR: /etc/api-gateway
+  REMOTE_ENV_FILE: /etc/api-gateway/service.env
+  HEALTHCHECK_URL: https://api.mikhailjbs.my.id/health
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Build binary
+        run: |
+          mkdir -p "${{ env.BUILD_DIR }}"
+          go build -ldflags "-s -w" -o "${{ env.BUILD_DIR }}/${{ env.BINARY_NAME }}" "${{ env.BUILD_TARGET }}"
+
+      - name: Clean up previous upload
+        uses: appleboy/ssh-action@v1.1.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          port: ${{ secrets.VPS_PORT }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: rm -rf /tmp/${{ env.BINARY_NAME }}
+
+      - name: Upload binary to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          port: ${{ secrets.VPS_PORT }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: "${{ env.BUILD_DIR }}/${{ env.BINARY_NAME }}"
+          target: "/tmp"
+          strip_components: 1
+          overwrite: true
+
+      - name: Deploy and restart service
+        uses: appleboy/ssh-action@v1.1.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          port: ${{ secrets.VPS_PORT }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -euo pipefail
+
+            SERVICE_NAME="${{ env.SERVICE_NAME }}"
+            BINARY_NAME="${{ env.BINARY_NAME }}"
+            REMOTE_BIN="${{ env.REMOTE_BIN_PATH }}"
+            SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
+            ENV_DIR="${{ env.REMOTE_ENV_DIR }}"
+            ENV_FILE="${{ env.REMOTE_ENV_FILE }}"
+            SERVICE_USER="${{ secrets.VPS_SERVICE_USER }}"
+            SERVICE_GROUP="${{ secrets.VPS_SERVICE_GROUP }}"
+
+            if [ -z "$SERVICE_USER" ]; then
+              SERVICE_USER="svc"
+            fi
+
+            if [ -z "$SERVICE_GROUP" ]; then
+              SERVICE_GROUP="$SERVICE_USER"
+            fi
+
+            echo "Ensuring service account $SERVICE_USER exists"
+            if ! id -u "$SERVICE_USER" >/dev/null 2>&1; then
+              sudo useradd --system --home "$ENV_DIR" --shell /usr/sbin/nologin "$SERVICE_USER"
+            fi
+            if ! getent group "$SERVICE_GROUP" >/dev/null 2>&1; then
+              sudo groupadd --system "$SERVICE_GROUP"
+            fi
+            sudo usermod -a -G "$SERVICE_GROUP" "$SERVICE_USER" >/dev/null 2>&1 || true
+
+            echo "Installing binary"
+            sudo install -m 755 "/tmp/${BINARY_NAME}" "$REMOTE_BIN"
+
+            echo "Preparing environment directory"
+            sudo mkdir -p "$ENV_DIR"
+            if [ ! -f "$ENV_FILE" ]; then
+              sudo touch "$ENV_FILE"
+              echo "# Add PORT/RSA_PUBLIC_KEY_PATH vars here" | sudo tee "$ENV_FILE" >/dev/null
+            fi
+            sudo chmod 640 "$ENV_FILE"
+            sudo chown "$SERVICE_USER:$SERVICE_GROUP" "$ENV_FILE"
+
+            echo "Writing systemd unit"
+            sudo tee "$SERVICE_FILE" >/dev/null <<EOF
+            [Unit]
+            Description=API Gateway
+            After=network-online.target
+            Wants=network-online.target
+
+            [Service]
+            Type=simple
+            User=$SERVICE_USER
+            Group=$SERVICE_GROUP
+            WorkingDirectory=$ENV_DIR
+            EnvironmentFile=$ENV_FILE
+            ExecStart=$REMOTE_BIN
+            Restart=on-failure
+            RestartSec=5
+            LimitNOFILE=65535
+            AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+            [Install]
+            WantedBy=multi-user.target
+            EOF
+
+            echo "Reloading and restarting service"
+            sudo systemctl daemon-reload
+            sudo systemctl enable "${SERVICE_NAME}.service"
+            sudo systemctl restart "${SERVICE_NAME}.service"
+            sudo systemctl status "${SERVICE_NAME}.service" --no-pager
+
+            echo "Deployment completed"
+
+      - name: Verify service health
+        run: |
+          echo "Probing ${{ env.HEALTHCHECK_URL }}"
+          for attempt in $(seq 1 10); do
+            if curl -fsS "${{ env.HEALTHCHECK_URL }}" >/dev/null; then
+              echo "Healthcheck passed"
+              exit 0
+            fi
+            echo "Attempt ${attempt} failed, waiting before retry"
+            sleep 3
+          done
+          echo "Service failed healthcheck" >&2
+          exit 1
