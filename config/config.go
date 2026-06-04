@@ -13,6 +13,7 @@ type Config struct {
 	RSAPublicKeyPath   string
 	ChatServiceURL     string
 	AuthServiceURL     string
+	ThothaiServiceURL  string
 	CORSAllowedOrigins string
 }
 
@@ -26,6 +27,7 @@ func Load() *Config {
 		RSAPublicKeyPath:   getEnv("RSA_PUBLIC_KEY_PATH", "../.secrets/public.pem"),
 		ChatServiceURL:     getEnv("CHAT_SERVICE_URL", "http://localhost:3002"),
 		AuthServiceURL:     getEnv("AUTH_SERVICE_URL", "http://localhost:3001"),
+		ThothaiServiceURL:  getEnv("THOTHAI_SERVICE_URL", "http://localhost:8000"),
 		CORSAllowedOrigins: getEnv("CORS_ALLOWED_ORIGINS", "http://localhost:3000"),
 	}
 }

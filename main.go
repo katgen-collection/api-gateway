@@ -59,6 +59,13 @@ func main() {
 		}
 		return err
 	})
+	app.Get("/thothai/health", func(c *fiber.Ctx) error {
+		err := proxy.Do(c, cfg.ThothaiServiceURL+"/health")
+		if err != nil {
+			log.Printf("proxy.Do /thothai/health error: %v", err)
+		}
+		return err
+	})
 
 	// ── Auth service routes (unauthenticated passthrough) ─────────────────────
 	app.All("/api/v1/auth/*", func(c *fiber.Ctx) error {
@@ -85,6 +92,21 @@ func main() {
 	app.Get("/api/v1/ws", authMiddleware, func(c *fiber.Ctx) error {
 		return wsProxy(c, cfg.ChatServiceURL)
 	})
+
+	// ── Thothai routes (protected) ────────────────────────────────────────────
+	// MUST be registered before the chat catch-all below — Fiber matches in
+	// registration order, and chatGroup.All("/*") would otherwise swallow these.
+	// The gateway validates the JWT and injects X-User-* headers; thothai trusts them.
+	thothaiProxy := func(c *fiber.Ctx) error {
+		return proxy.Do(c, cfg.ThothaiServiceURL+c.OriginalURL())
+	}
+	thothai := app.Group("/api/v1", authMiddleware)
+	thothai.All("/chat/*", thothaiProxy)
+	thothai.All("/search/*", thothaiProxy)
+	thothai.All("/cvs/*", thothaiProxy)
+	thothai.All("/cvs", thothaiProxy)
+	thothai.All("/jobs/*", thothaiProxy)
+	thothai.Get("/history", thothaiProxy)
 
 	// ── Chat REST routes (protected) ──────────────────────────────────────────
 	chatGroup := app.Group("/api/v1", authMiddleware)
