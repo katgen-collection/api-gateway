@@ -8,7 +8,7 @@ PORT=3002
 AUTH_SERVICE_URL=http://localhost:3000
 CHAT_SERVICE_URL=http://localhost:3001
 RSA_PUBLIC_KEY_PATH=/etc/katgen-secrets/public.pem
-AUTH_COOKIE_DOMAIN=.mikhailjbs.my.id
+AUTH_COOKIE_DOMAIN=.katgen.pro
 ```
 
 ## 2. Secrets Management

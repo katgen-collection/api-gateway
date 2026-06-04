@@ -18,7 +18,7 @@ env:
   REMOTE_BIN_PATH: /usr/local/bin/api-gateway
   REMOTE_ENV_DIR: /etc/api-gateway
   REMOTE_ENV_FILE: /etc/api-gateway/service.env
-  HEALTHCHECK_URL: https://api.mikhailjbs.my.id/health
+  HEALTHCHECK_URL: https://api.katgen.pro/health
 
 jobs:
   deploy:
